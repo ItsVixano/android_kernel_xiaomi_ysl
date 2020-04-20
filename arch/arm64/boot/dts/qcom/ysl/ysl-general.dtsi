@@ -267,4 +267,8 @@ chan@11 {
 		qcom,fast-avg-setup = <0>;
 		qcom,vadc-thermal-node;
 		};
-	};	
+	};
+
+&apps_iommu {
+	qcom,no-aarch64;
+};	
