@@ -225,6 +225,11 @@ static bool get_dload_mode(void)
 }
 #endif
 
+static void enable_emergency_dload_mode(void)
+{
+	pr_err("dload mode is not enabled on target\n");
+}
+
 static void scm_disable_sdi(void)
 {
 	int ret;
