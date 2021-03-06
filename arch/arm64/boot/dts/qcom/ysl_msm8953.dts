@@ -23,7 +23,7 @@
 	model = "Qualcomm Technologies, Inc. MSM8953 + PMI8940 MTP";
 	compatible = "qcom,msm8953-mtp", "qcom,msm8953", "qcom,mtp";
 	qcom,board-id= <8 0>;
-	qcom,pmic-id = <0x010016 0x010011 0x0 0x0>;
+	qcom,pmic-id = <0x010016 0x010011 0x0 0x0>, <0x010016 0x020040 0x0 0x0>;
 };
 
 /{
