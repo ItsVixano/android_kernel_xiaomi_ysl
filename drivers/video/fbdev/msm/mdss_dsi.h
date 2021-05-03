@@ -440,6 +440,10 @@ struct mdss_dsi_ctrl_pdata {
 	int bklt_en_gpio;
 	int vdd_ext_gpio;
 	int mode_gpio;
+#ifdef CONFIG_MACH_XIAOMI_YSL
+	int ocp2131_enp_gpio;
+	int ocp2131_enn_gpio;
+#endif
 	int intf_mux_gpio;
 	bool bklt_en_gpio_invert;
 	int lcd_mode_sel_gpio;

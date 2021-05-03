@@ -37,6 +37,10 @@
 
 DEFINE_LED_TRIGGER(bl_led_trigger);
 
+#ifdef CONFIG_MACH_XIAOMI_YSL
+static char g_lcd_id[MDSS_MAX_PANEL_LEN];
+#endif
+
 void mdss_dsi_panel_pwm_cfg(struct mdss_dsi_ctrl_pdata *ctrl)
 {
 	if (ctrl->pwm_pmi)
@@ -165,6 +169,46 @@ int mdss_dsi_panel_cmd_read(struct mdss_dsi_ctrl_pdata *ctrl, char cmd0,
 	return mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
 
+#ifdef CONFIG_MACH_XIAOMI_YSL
+static char dcs_reg[2] = {0x00, 0x00}; /* DTYPE_DCS_READ */
+static struct dsi_cmd_desc dcs_read_reg = {
+	{DTYPE_DCS_READ, 1, 0, 1, 5, sizeof(dcs_reg)},
+	dcs_reg
+};
+
+int mdss_dsi_read_reg(struct mdss_dsi_ctrl_pdata *ctrl, char cmd0, int *val0, int *val1)
+{
+	struct dcs_cmd_req cmdreq;
+	struct mdss_panel_info *pinfo;
+	char rbuf[3];
+	int len = sizeof(rbuf);
+
+	pinfo = &(ctrl->panel_data.panel_info);
+	if (pinfo->dcs_cmd_by_left) {
+		if (ctrl->ndx != DSI_CTRL_LEFT)
+			return -EINVAL;
+	}
+
+	dcs_reg[0] = cmd0;
+	memset(&cmdreq, 0, sizeof(cmdreq));
+	cmdreq.cmds = &dcs_read_reg;
+	cmdreq.cmds_cnt = 1;
+	cmdreq.flags = CMD_REQ_RX | CMD_REQ_COMMIT | CMD_REQ_HS_MODE;
+	cmdreq.rlen = len;
+	cmdreq.rbuf = rbuf;
+	cmdreq.cb = NULL; /* call back */
+	/*
+	 * blocked here, until call back called
+	 */
+
+	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+	*val0 = rbuf[0];
+	*val1 = rbuf[1];
+
+	return 0;
+}
+#endif
+
 static void mdss_dsi_panel_apply_settings(struct mdss_dsi_ctrl_pdata *ctrl,
 				struct dsi_panel_cmds *pcmds)
 {
@@ -219,6 +263,15 @@ static struct dsi_cmd_desc backlight_cmd = {
 	led_pwm1
 };
 
+#ifdef CONFIG_MACH_XIAOMI_YSL
+extern int ID0_status, ID1_status;
+static char led_pwm2[3] = {0x51, 0x0 , 0x0};	/* DTYPE_DCS_WRITE1 */
+static struct dsi_cmd_desc backlight_cmd2 = {
+	{DTYPE_DCS_LWRITE, 1, 0, 0, 1, sizeof(led_pwm2)},
+	led_pwm2
+};
+#endif
+
 static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 {
 	struct dcs_cmd_req cmdreq;
@@ -232,12 +285,36 @@ static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 
 	pr_debug("%s: level=%d\n", __func__, level);
 
+#ifdef CONFIG_MACH_XIAOMI_YSL
+	if ((ID0_status == 0) && (ID1_status == 0)) {
+		led_pwm2[1] = (unsigned char)((level & 0xf0) >> 4);
+		led_pwm2[2] = (unsigned char)((level & 0x0f) << 4);
+	} else if ((ID0_status == 1) && (ID1_status == 0)) {
+		led_pwm2[1] = (unsigned char)((level & 0xf0) >> 4);
+		led_pwm2[2] = (unsigned char)((level & 0x0f) << 4);
+	} else {
+		led_pwm1[1] = (unsigned char)level;
+	}
+#else
 	led_pwm1[1] = (unsigned char)level;
+#endif
 
 	memset(&cmdreq, 0, sizeof(cmdreq));
+#ifdef CONFIG_MACH_XIAOMI_YSL
+	if ((ID0_status == 0) && (ID1_status == 0)) {
+		cmdreq.cmds = &backlight_cmd2;
+	} else if ((ID0_status == 1) && (ID1_status == 0)) {
+		cmdreq.cmds = &backlight_cmd2;
+	} else {
+		cmdreq.cmds = &backlight_cmd;
+	}
+
+	cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL;
+#else
 	cmdreq.cmds = &backlight_cmd;
-	cmdreq.cmds_cnt = 1;
 	cmdreq.flags = CMD_REQ_COMMIT;
+#endif
+	cmdreq.cmds_cnt = 1;
 	cmdreq.rlen = 0;
 	cmdreq.cb = NULL;
 
@@ -327,6 +404,22 @@ static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 			goto bklt_en_gpio_err;
 		}
 	}
+#ifdef CONFIG_MACH_XIAOMI_YSL
+   if (gpio_is_valid(ctrl_pdata->ocp2131_enp_gpio)) {
+		rc = gpio_request(ctrl_pdata->ocp2131_enp_gpio, "ocp2131_enp_enable");
+		if (rc) {
+			goto ocp2131_enp_gpio;
+		}
+	}
+
+  if (gpio_is_valid(ctrl_pdata->ocp2131_enn_gpio)) {
+		rc = gpio_request(ctrl_pdata->ocp2131_enn_gpio, "ocp2131_enn_enable");
+		if (rc) {
+			goto ocp2131_enn_gpio;
+		}
+	}
+#endif
+
 	if (gpio_is_valid(ctrl_pdata->vdd_ext_gpio)) {
 		rc = gpio_request(ctrl_pdata->vdd_ext_gpio,
 						"vdd_enable");
@@ -352,8 +445,20 @@ mode_gpio_err:
 vdd_en_gpio_err:
 	if (gpio_is_valid(ctrl_pdata->bklt_en_gpio))
 		gpio_free(ctrl_pdata->bklt_en_gpio);
+#ifdef CONFIG_MACH_XIAOMI_YSL
+ocp2131_enp_gpio:
+	if (gpio_is_valid(ctrl_pdata->ocp2131_enp_gpio))
+		gpio_free(ctrl_pdata->ocp2131_enp_gpio);
+ocp2131_enn_gpio:
+	if (gpio_is_valid(ctrl_pdata->ocp2131_enn_gpio))
+		gpio_free(ctrl_pdata->ocp2131_enn_gpio);
+bklt_en_gpio_err:
+	if (gpio_is_valid(ctrl_pdata->rst_gpio))
+		gpio_free(ctrl_pdata->rst_gpio);
+#else
 bklt_en_gpio_err:
 	gpio_free(ctrl_pdata->rst_gpio);
+#endif
 rst_gpio_err:
 	if (gpio_is_valid(ctrl_pdata->disp_en_gpio))
 		gpio_free(ctrl_pdata->disp_en_gpio);
@@ -439,6 +544,24 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			return rc;
 		}
 		if (!pinfo->cont_splash_enabled) {
+#ifdef CONFIG_MACH_XIAOMI_YSL
+            if (gpio_is_valid(ctrl_pdata->ocp2131_enp_gpio)) {
+                rc = gpio_direction_output(
+                    ctrl_pdata->ocp2131_enp_gpio, 1);
+                if (rc) {
+                    goto exit;
+                }
+		mdelay(2);
+            }
+
+            if (gpio_is_valid(ctrl_pdata->ocp2131_enn_gpio)) {
+                rc = gpio_direction_output(
+                    ctrl_pdata->ocp2131_enn_gpio, 1);
+                if (rc) {
+                    goto exit;
+                }
+            }
+#endif
 			if (gpio_is_valid(ctrl_pdata->disp_en_gpio)) {
 				rc = gpio_direction_output(
 					ctrl_pdata->disp_en_gpio, 1);
@@ -517,6 +640,24 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 
 			gpio_free(ctrl_pdata->bklt_en_gpio);
 		}
+#ifdef CONFIG_MACH_XIAOMI_YSL
+		if (gpio_is_valid(ctrl_pdata->rst_gpio)) {
+			gpio_set_value((ctrl_pdata->rst_gpio), 0);
+			gpio_free(ctrl_pdata->rst_gpio);
+			mdelay(15);
+		}
+
+		if (gpio_is_valid(ctrl_pdata->ocp2131_enn_gpio)) {
+				gpio_set_value((ctrl_pdata->ocp2131_enn_gpio), 0);
+				gpio_free(ctrl_pdata->ocp2131_enn_gpio);
+				mdelay(2);
+			}
+
+		if (gpio_is_valid(ctrl_pdata->ocp2131_enp_gpio)) {
+				gpio_set_value((ctrl_pdata->ocp2131_enp_gpio), 0);
+				gpio_free(ctrl_pdata->ocp2131_enp_gpio);
+			}
+#endif
 		if (gpio_is_valid(ctrl_pdata->disp_en_gpio)) {
 			gpio_set_value((ctrl_pdata->disp_en_gpio), 0);
 			usleep_range(100, 110);
@@ -829,6 +970,9 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 {
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 	struct mdss_dsi_ctrl_pdata *sctrl = NULL;
+#ifdef CONFIG_MACH_XIAOMI_YSL
+	static u32 old_bl_level = 0;
+#endif
 
 	if (pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
@@ -883,6 +1027,9 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 			__func__);
 		break;
 	}
+#ifdef CONFIG_MACH_XIAOMI_YSL
+	old_bl_level = bl_level;
+#endif
 }
 
 #ifdef TARGET_HW_MDSS_HDMI
@@ -1774,11 +1921,48 @@ static int mdss_dsi_parse_reset_seq(struct device_node *np,
 	return 0;
 }
 
+#ifdef CONFIG_MACH_XIAOMI_YSL
+static char sleep_out[1] = {0x11};	/* DTYPE_DCS_WRITE1 */
+static struct dsi_cmd_desc sleep_out_cmd = {
+	{DTYPE_DCS_LWRITE, 1, 0, 0, 5, sizeof(sleep_out)},
+	sleep_out
+};
+/* add sleep out for truly panel fix esd problem */
+static int mdss_dsi_truly_set_sleep_out(struct mdss_dsi_ctrl_pdata *ctrl)
+{
+	struct dcs_cmd_req cmdreq;
+	struct mdss_panel_info *pinfo;
+
+	pr_debug("%s:start truly sleep out\n", __func__);
+
+	pinfo = &(ctrl->panel_data.panel_info);
+	if (pinfo->dcs_cmd_by_left) {
+		if (ctrl->ndx != DSI_CTRL_LEFT)
+			return -EINVAL;
+	}
+
+		cmdreq.cmds = &sleep_out_cmd;
+		cmdreq.cmds_cnt = 1;
+		cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL | CMD_REQ_HS_MODE;
+		cmdreq.rlen = 0;
+		cmdreq.cb = NULL;
+		mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+
+	pr_debug("%s:end truly sleep out\n", __func__);
+	return 0;
+}
+#endif
+
 static bool mdss_dsi_cmp_panel_reg_v2(struct mdss_dsi_ctrl_pdata *ctrl)
 {
 	int i, j = 0;
 	int len = 0, *lenp;
 	int group = 0;
+
+#ifdef CONFIG_MACH_XIAOMI_YSL
+	if (!strncmp(ctrl->panel_data.panel_info.panel_name, "truly hx8394f", 13))
+		mdss_dsi_truly_set_sleep_out(ctrl);
+#endif
 
 	lenp = ctrl->status_valid_params ?: ctrl->status_cmds_rlen;
 
@@ -2571,18 +2755,50 @@ static int mdss_dsi_panel_timing_from_dt(struct device_node *np,
 	return 0;
 }
 
+#ifdef CONFIG_MACH_XIAOMI_YSL
+#if 1
+#define HW_BOARD_ID_GPIO0 62
+#define HW_BOARD_ID_GPIO1 1
+#else
+#define HW_BOARD_ID_GPIO0 20
+#define HW_BOARD_ID_GPIO1 21
+#endif
+#endif
+
 static int  mdss_dsi_panel_config_res_properties(struct device_node *np,
 		struct dsi_panel_timing *pt,
 		struct mdss_panel_data *panel_data,
 		bool default_timing)
 {
 	int rc = 0;
+#ifdef CONFIG_MACH_XIAOMI_YSL
+	int board_id0=0, board_id1=0;
+	static const char *lcd_panel_name;
+
+	lcd_panel_name = of_get_property(np, "qcom,mdss-dsi-panel-name", NULL);
+	board_id0=gpio_get_value(HW_BOARD_ID_GPIO0);
+	board_id1=gpio_get_value(HW_BOARD_ID_GPIO1);
+#endif
 
 	mdss_dsi_parse_roi_alignment(np, pt);
 
+#ifdef CONFIG_MACH_XIAOMI_YSL
+	if (!strcmp(lcd_panel_name, "hx otm1901a 720p video mode dsi panel")) {
+		if ((board_id0 == 1 && board_id1 == 0) || (board_id0 == 1 && board_id1 == 1)) {
+			mdss_dsi_parse_dcs_cmds(np, &pt->on_cmds,
+				"qcom,mdss-dsi-india-on-command",
+				"qcom,mdss-dsi-on-command-state");
+		} else {
+			mdss_dsi_parse_dcs_cmds(np, &pt->on_cmds,
+				"qcom,mdss-dsi-on-command",
+				"qcom,mdss-dsi-on-command-state");
+		}
+	}
+#else
 	mdss_dsi_parse_dcs_cmds(np, &pt->on_cmds,
 		"qcom,mdss-dsi-on-command",
 		"qcom,mdss-dsi-on-command-state");
+#endif
 
 	mdss_dsi_parse_dcs_cmds(np, &pt->post_panel_on_cmds,
 		"qcom,mdss-dsi-post-panel-on-command", NULL);
@@ -2689,6 +2905,12 @@ static int mdss_panel_parse_dt_hdmi(struct device_node *np,
 	int len = 0;
 	const char *bridge_chip_name;
 	struct mdss_panel_info *pinfo = &(ctrl_pdata->panel_data.panel_info);
+#ifdef CONFIG_MACH_XIAOMI_YSL
+	int board_id0 = 0, board_id1 = 0;
+
+	board_id0 = gpio_get_value(HW_BOARD_ID_GPIO0);
+	board_id1 = gpio_get_value(HW_BOARD_ID_GPIO1);
+#endif
 
 	pinfo->is_dba_panel = of_property_read_bool(np,
 			"qcom,dba-panel");
@@ -2970,6 +3192,39 @@ error:
 	return -EINVAL;
 }
 
+#ifdef CONFIG_MACH_XIAOMI_YSL
+static ssize_t msm_fb_lcd_name(struct device *dev,
+		struct device_attribute *attr, char *buf)
+ {
+   ssize_t ret = 0;
+   sprintf(buf, "%s\n", g_lcd_id);
+   ret = strlen(buf) + 1;
+   return ret;
+ }
+
+
+static DEVICE_ATTR(lcd_name, 0664, msm_fb_lcd_name, NULL);
+static struct kobject *msm_lcd_name;
+
+static int msm_lcd_name_create_sysfs(void)
+{
+   int ret;
+   msm_lcd_name = kobject_create_and_add("android_lcd", NULL);
+
+   if(msm_lcd_name == NULL) {
+     ret=-ENOMEM;
+     return ret;
+   }
+
+   ret=sysfs_create_file(msm_lcd_name, &dev_attr_lcd_name.attr);
+   if(ret) {
+    kobject_del(msm_lcd_name);
+   }
+
+   return 0;
+}
+#endif
+
 int mdss_dsi_panel_init(struct device_node *node,
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata,
 	int ndx)
@@ -2994,6 +3249,9 @@ int mdss_dsi_panel_init(struct device_node *node,
 	} else {
 		pr_info("%s: Panel Name = %s\n", __func__, panel_name);
 		strlcpy(&pinfo->panel_name[0], panel_name, MDSS_MAX_PANEL_LEN);
+#ifdef CONFIG_MACH_XIAOMI_YSL
+		strlcpy(g_lcd_id, panel_name, sizeof(g_lcd_id));
+#endif
 	}
 	rc = mdss_panel_parse_dt(node, ctrl_pdata);
 	if (rc) {
@@ -3015,5 +3273,8 @@ int mdss_dsi_panel_init(struct device_node *node,
 			mdss_dsi_panel_apply_display_setting;
 	ctrl_pdata->switch_mode = mdss_dsi_panel_switch_mode;
 	ctrl_pdata->panel_data.get_idle = mdss_dsi_panel_get_idle_mode;
+#ifdef CONFIG_MACH_XIAOMI_YSL
+	msm_lcd_name_create_sysfs();
+#endif
 	return 0;
 }
