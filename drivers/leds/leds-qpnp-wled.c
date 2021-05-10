@@ -443,6 +443,8 @@ module_param_named(
 	step_delay_gain, qpnp_wled_step_delay_gain, int, 0600
 );
 
+static int first_set_prev_state = 0;
+
 /* helper to read a pmic register */
 static int qpnp_wled_read_reg(struct qpnp_wled *wled, u16 addr, u8 *data)
 {
@@ -1142,6 +1144,11 @@ static void qpnp_wled_work(struct work_struct *work)
 			dev_err(&wled->pdev->dev, "wled set level failed\n");
 			goto unlock_mutex;
 		}
+	}
+
+	if (1 == first_set_prev_state) {
+		wled->prev_state = true;
+		first_set_prev_state = 0;
 	}
 
 	if (!!level != wled->prev_state) {
@@ -2757,6 +2764,12 @@ static int qpnp_wled_probe(struct platform_device *pdev)
 	if (rc) {
 		dev_err(&pdev->dev, "wled config failed\n");
 		return rc;
+	}
+
+	if (strnstr(saved_command_line, "androidboot.mode=ffbm-01",
+		    strlen(saved_command_line))) {
+		printk("linson in ffbm mode\n");
+		first_set_prev_state = 1;
 	}
 
 	INIT_WORK(&wled->work, qpnp_wled_work);
