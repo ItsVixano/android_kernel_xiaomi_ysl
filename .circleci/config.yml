@@ -1,0 +1,17 @@
+version: 2.1
+jobs:
+  compile:
+   docker:
+      - image: fr3akyphantom/droid-builder:latest
+   steps:
+      - run:
+          command: |
+           git clone https://github.com/ItsVixano/android_kernel_xiaomi_ysl --single-branch -b los-temp --depth=1 ysl
+           cd ysl
+           wget https://github.com/ItsVixano/personalscripts/raw/master/kernel/lineage.sh
+           bash lineage.sh
+workflows:
+  version: 2.1
+  cooking:
+    jobs:
+      - compile
