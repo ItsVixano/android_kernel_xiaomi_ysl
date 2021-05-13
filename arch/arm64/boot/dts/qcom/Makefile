@@ -566,7 +566,7 @@ dtb-$(CONFIG_ARCH_MSM8953) += msm8953-cdp.dtb \
 	msm8953-pmi8937-ext-codec-mtp.dtb \
 	msm8953-pmi632-cdp-s2.dtb \
 	apq8053-batcam.dtb
-
+endif
 dtb-$(CONFIG_ARCH_MSM8937) += msm8937-pmi8950-mtp.dtb \
 	msm8937-interposer-sdm439-cdp.dtb \
 	msm8937-interposer-sdm439-mtp.dtb \
