@@ -6,7 +6,7 @@ jobs:
    steps:
       - run:
           command: |
-           git clone https://github.com/ItsVixano/android_kernel_xiaomi_ysl --single-branch -b los-temp --depth=1 ysl
+           git clone https://github.com/ItsVixano/android_kernel_xiaomi_ysl --single-branch -b los-dtbs-rewrite --depth=1 ysl
            cd ysl
            wget https://github.com/ItsVixano/personalscripts/raw/master/kernel/lineage.sh
            bash lineage.sh
